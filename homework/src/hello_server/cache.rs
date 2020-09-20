@@ -9,7 +9,6 @@ use std::sync::{Arc, Mutex, RwLock};
 pub struct Cache<K, V> {
     // todo! Build your own cache type.
     inner: RwLock<HashMap<K,V>>,
-
 }
 
 impl<K: Eq + Hash + Clone, V: Clone> Cache<K, V> {
@@ -28,8 +27,9 @@ impl<K: Eq + Hash + Clone, V: Clone> Cache<K, V> {
         match hash.get(&key) {
             Some(value) => value.clone(),
             None => {
-                let mut hash = self.inner.write().unwrap();
+                drop(hash);
                 let value = f(key.clone());
+                let mut hash = self.inner.write().unwrap();
                 hash.insert(key.clone(), value.clone());
                 value
             },

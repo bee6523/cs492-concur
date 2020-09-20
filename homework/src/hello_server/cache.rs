@@ -1,6 +1,6 @@
 //! Thead-safe key/value cache.
 
-use std::collections::hash_map::{Entry, HashMap};
+use std::collections::hash_map::{HashMap};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 #[derive(Debug, Default)]
 pub struct Cache<K, V> {
     // todo! Build your own cache type.
-    inner: RwLock<HashMap<K,V>>,
+    inner: RwLock<HashMap<K,Arc<Mutex<Option<V>>>>>,
 }
 
 impl<K: Eq + Hash + Clone, V: Clone> Cache<K, V> {
@@ -23,14 +23,20 @@ impl<K: Eq + Hash + Clone, V: Clone> Cache<K, V> {
     /// duplicate the work. That is, `f` should be run only once for each key. Specifically, even
     /// for the concurrent invocations of `get_or_insert_with(key, f)`, `f` is called only once.
     pub fn get_or_insert_with<F: FnOnce(K) -> V>(&self, key: K, f: F) -> V {
-        let hash = self.inner.read().unwrap();
+        let mut hash = self.inner.write().unwrap();
         match hash.get(&key) {
-            Some(value) => value.clone(),
+            Some(value) => {
+                let ret = value.lock().unwrap();
+                ret.as_ref().unwrap().clone()
+            }
             None => {
+                let working = Arc::new(Mutex::new(None));
+                hash.insert(key.clone(), Arc::clone(&working));
+                let mut lock = working.lock().unwrap();
                 drop(hash);
+
                 let value = f(key.clone());
-                let mut hash = self.inner.write().unwrap();
-                hash.insert(key.clone(), value.clone());
+                *lock = Some(value.clone());
                 value
             },
         }

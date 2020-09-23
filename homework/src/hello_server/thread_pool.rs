@@ -98,7 +98,6 @@ impl ThreadPool {
                 let msg:Message = worker_receiver.recv().unwrap();
                 match msg {
                     Message::NewJob(job) =>{
-                        worker_inner.start_job();
                         println!("Worker {} got a job; executing.", id);
                         job.0();
                         worker_inner.finish_job();
@@ -130,6 +129,7 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static,
     {
         let job = Job(Box::new(f));
+        self.pool_inner.start_job();
         self.job_sender.as_ref().unwrap().send(Message::NewJob(job)).unwrap();
     }
 

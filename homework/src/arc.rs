@@ -91,14 +91,18 @@ impl<T> Arc<T> {
     /// ```
     #[inline]
     pub fn get_mut(this: &mut Self) -> Option<&mut T> {
-        todo!()
+        if this.is_unique() {
+            unsafe{Some(&mut (*this.ptr.as_ptr()).data)}
+        }else{
+            None
+        }
     }
 
     // Used in `get_mut` and `make_mut` to check if the given `Arc` is the unique reference to the
     // underlying data.
     #[inline]
     fn is_unique(&mut self) -> bool {
-        todo!()
+        Arc::count(self)==1
     }
 
     /// Returns a mutable reference into the given `Arc` without any check.
@@ -149,7 +153,9 @@ impl<T> Arc<T> {
     /// ```
     #[inline]
     pub fn count(this: &Self) -> usize {
-        todo!()
+        unsafe{
+            (*this.ptr.as_ptr()).count.load(Ordering::Acquire)
+        }
     }
 
     #[inline]
@@ -200,7 +206,16 @@ impl<T> Arc<T> {
     /// ```
     #[inline]
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
-        todo!()
+        if Arc::count(&this)==1 {
+            unsafe{
+            let b = Box::from_raw(this.ptr.as_ptr());
+            let data = b.data;
+            mem::forget(this);
+            Ok(data)
+            }
+        }else{
+            Err(this)
+        }
     }
 }
 
@@ -232,7 +247,21 @@ impl<T: Clone> Arc<T> {
     /// ```
     #[inline]
     pub fn make_mut(this: &mut Self) -> &mut T {
-        todo!()
+        if(this.is_unique()){
+            unsafe { &mut (*this.ptr.as_ptr()).data }
+        }else{
+            let p = this.ptr.as_ptr();
+            unsafe{
+                (*p).count.fetch_sub(1,Ordering::AcqRel);
+                let x=Box::new(ArcInner{
+                    count: AtomicUsize::new(1),
+                    data: T::clone(&(*p).data),
+                });
+                this.ptr = Box::leak(x).into();
+
+                &mut (*this.ptr.as_ptr()).data 
+            }
+        }
     }
 }
 
@@ -257,7 +286,10 @@ impl<T> Clone for Arc<T> {
     /// ```
     #[inline]
     fn clone(&self) -> Arc<T> {
-        todo!()
+        unsafe{
+            (*self.ptr.as_ptr()).count.fetch_add(1,Ordering::AcqRel);
+        }
+        Arc::from_inner(self.ptr)
     }
 }
 
@@ -296,7 +328,13 @@ impl<T> Drop for Arc<T> {
     /// drop(foo2);   // Prints "dropped!"
     /// ```
     fn drop(&mut self) {
-        todo!()
+        let p = self.ptr.as_ptr();
+        unsafe{
+            let cnt = (*p).count.fetch_sub(1,Ordering::AcqRel);
+            if cnt == 1 {
+                let data = Box::from_raw(p);
+            }
+        }
     }
 }
 

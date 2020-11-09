@@ -38,34 +38,19 @@ impl<'l, T: Ord> Cursor<'l, T> {
     /// return `true`.
     fn find(&mut self, key: &T) -> bool {
         unsafe{
-            let start = &self.0;
-            let ptr = **start;
-            if ptr.is_null(){
-                return false;
-            }
-            if &((*ptr).data) == key {
-                return true;
-            }else if &((*ptr).data) > key{
-                return false;
-            }
-            let mut guard = (*ptr).next.lock().unwrap();
-            drop(start);
             loop{
-                if (*guard).is_null(){
-                    self.0 = guard;
+                let start = &self.0;
+                let ptr = **start;
+                if ptr.is_null(){
                     return false;
                 }
-                let node = (*guard).as_ref().unwrap();
-                if &(node.data) == key {
-                    self.0 = guard;
+                if &((*ptr).data) == key {
                     return true;
-                }else if &(node.data) > key {
-                    self.0 = guard;
+                }else if &((*ptr).data) > key{
                     return false;
                 }
-                let tmp = node.next.lock().unwrap();
-                drop(guard);
-                guard=tmp;
+                
+                self.0 = (*ptr).next.lock().unwrap();
             }
         }
     }

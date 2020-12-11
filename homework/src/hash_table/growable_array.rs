@@ -173,7 +173,14 @@ impl Debug for Segment {
 impl<T> Drop for GrowableArray<T> {
     /// Deallocate segments, but not the individual elements.
     fn drop(&mut self) {
-        todo!()
+        unsafe{
+            let segment=self.root.swap(Shared::null(),Ordering::Relaxed, unprotected());
+            println!("height : {}",segment.tag());
+            if segment.tag()>0 {
+                self.recursive_drop(segment);
+                drop(segment.into_owned());
+            }
+        }
     }
 }
 
@@ -195,6 +202,64 @@ impl<T> GrowableArray<T> {
     /// Returns the reference to the `Atomic` pointer at `index`. Allocates new segments if
     /// necessary.
     pub fn get(&self, mut index: usize, guard: &Guard) -> &Atomic<T> {
-        todo!()
+        let numbits=mem::size_of::<usize>()*8-(index.leading_zeros() as usize);
+        let mut height;
+        loop{       // expand array height to fit index
+            let root=self.root.load(Ordering::Acquire,guard);
+            height= root.tag();
+            if root.is_null() || numbits > height*SEGMENT_LOGSIZE {
+                let new_root=Owned::new(Segment::new()).with_tag(height+1);
+                new_root[0].store(root.into_usize(),Ordering::Relaxed); // ok to be relaxed since it is owned value
+                
+                match self.root.compare_and_set(root,new_root,Ordering::Release,guard){
+                    Err(e) => drop(e.new),
+                    Ok(_)=>(),
+                }
+            }else{
+                break;
+            }
+        }
+        // println!("height: {}", height);
+        let mut parent=&self.root;
+        let mask = (1 << SEGMENT_LOGSIZE)-1;        // to extract index. if segment_logsize=3, mask= 0b000111
+        loop{
+            let mut segment=parent.load(Ordering::Acquire,guard);
+            if segment.is_null() {
+                let new_seg=Owned::new(Segment::new());
+                match parent.compare_and_set(Shared::null(),new_seg.with_tag(height-1),Ordering::Release,guard){
+                    Err(e) => {
+                        drop(e.new);
+                        segment=e.current;
+                    },
+                    Ok(shared) => segment=shared,
+                }
+            }
+            height=segment.tag();
+            let seg_idx=(index>>((height-1)*SEGMENT_LOGSIZE)) & mask;
+            // println!("idx: {}",seg_idx);
+            if height != 1 {
+                parent=unsafe { &*(segment.as_ref().unwrap().get_unchecked(seg_idx) as *const _ as *const Atomic<Segment>) };
+            }else{
+                // unsafe{ println!("val: {}",segment.as_ref().unwrap()[seg_idx].load(Ordering::Acquire));}
+                return unsafe { &*(segment.as_ref().unwrap().get_unchecked(seg_idx) as *const _ as *const Atomic<T>) };
+            }
+        }
+    }
+
+    fn recursive_drop(&self, segment:Shared<Segment>){
+        let height=segment.tag();
+        if height>=2 {
+            let segment=unsafe { segment.as_ref().unwrap() };
+            for au in segment.iter(){
+                let u=au.load(Ordering::Relaxed);
+                unsafe{
+                    let p=Shared::<Segment>::from_usize(u);
+                    if !p.is_null() {
+                        self.recursive_drop(p);
+                        drop(p.into_owned());
+                    }
+                }
+            }
+        }
     }
 }

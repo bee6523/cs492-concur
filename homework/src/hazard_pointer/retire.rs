@@ -1,4 +1,7 @@
+#[cfg(not(feature = "check-loom"))]
 use core::sync::atomic::{fence, Ordering};
+#[cfg(feature = "check-loom")]
+use loom::sync::atomic::{fence, Ordering};
 
 use super::align;
 use super::atomic::Shared;
@@ -8,7 +11,7 @@ use super::hazard::Hazards;
 pub struct Retirees<'s> {
     hazards: &'s Hazards,
     /// The first element of the pair is the machine representation of a pointer without tag and
-    /// the second is the function pointer to `free::<T>` where `T` is the type of the object. 
+    /// the second is the function pointer to `free::<T>` where `T` is the type of the object.
     inner: Vec<(usize, unsafe fn(usize))>,
 }
 
@@ -41,6 +44,8 @@ impl<'s> Retirees<'s> {
     }
 }
 
+// TODO(@tomtomjhj): this triggers loom internal bug
+#[cfg(not(feature = "check-loom"))]
 impl Drop for Retirees<'_> {
     fn drop(&mut self) {
         // In a production-quality implementation of hazard pointers, the remaining local retired

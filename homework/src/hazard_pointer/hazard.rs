@@ -96,7 +96,7 @@ impl Iterator for LocalHazardsIter<'_> {
             return None;
         }else{
             self.occupied = self.occupied ^ (1<<index);
-            return Some(index);
+            return unsafe { Some(self.hazards.elements.get_unchecked(index).load(Ordering::Acquire)) };
         }
     }
 }
@@ -169,7 +169,8 @@ impl<'s, T> Shield<'s, T> {
 
     /// Check if `pointer` is protected by the shield. The tags are ignored.
     pub fn validate(&self, pointer: Shared<T>) -> bool {
-        return self.data == pointer.into_usize();
+        let (data, _) = align::decompose_tag::<T>(self.data);
+        data == pointer.with_tag(0).into_usize()
     }
 }
 

@@ -34,13 +34,30 @@ impl<'s> Retirees<'s> {
             drop(Box::from_raw(data as *mut T))
         }
 
-        todo!()
+        self.inner.push((pointer.into_usize(),free::<T>));
+        if self.inner.len() > Retirees::THRESHOLD {
+            self.collect();
+        }
     }
 
     /// Free the pointers that are `retire`d by the current thread and not `protect`ed by any other
     /// threads.
     pub fn collect(&mut self) {
-        todo!()
+        //stage 1 : hazard pointer hash set implemented by Hazards struct
+        let hhs = self.hazards.all_hazards();
+
+        //stage 2
+        let mut new_vec = Vec::<(usize,unsafe fn(usize))>::new();
+        fence(Ordering::Acquire);
+        while let Some(data) = self.inner.pop() {
+            if hhs.contains(&data.0) {
+                new_vec.push(data);
+            }else{
+                unsafe { data.1(data.0); }
+            }
+        }
+        self.inner = new_vec;
+        fence(Ordering::Release);
     }
 }
 
